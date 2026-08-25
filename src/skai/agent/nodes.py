@@ -34,7 +34,9 @@ def route(state: AgentState, *, llm) -> dict:
 def retrieve(state: AgentState, *, kb, top_k: int = 5) -> dict:
     # param is named `kb`, not `store`: LangGraph reserves `store` for its own
     # BaseStore injection and would overwrite a bound value.
-    hits = kb.query(state["question"], k=top_k)
+    hits = kb.query(
+        state["question"], k=top_k, source_type=state.get("source_type")
+    )
     return {"docs": hits}
 
 

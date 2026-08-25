@@ -43,6 +43,7 @@ class AgentState(TypedDict, total=False):
 
     question: str
     messages: Annotated[list, add_messages]
+    source_type: str | None
     route: Route
     docs: list[RetrievedChunk]
     docs_ok: bool

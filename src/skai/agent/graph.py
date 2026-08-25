@@ -68,13 +68,22 @@ def make_checkpointer(path: str):
 
 
 def answer_question(
-    graph, question: str, thread_id: str = "default", callbacks: list | None = None
+    graph,
+    question: str,
+    thread_id: str = "default",
+    callbacks: list | None = None,
+    source_type: str | None = None,
 ) -> dict:
     config: dict = {"configurable": {"thread_id": thread_id}}
     if callbacks:
         config["callbacks"] = callbacks
     result = graph.invoke(
-        {"question": question, "messages": [HumanMessage(content=question)], "retries": 0},
+        {
+            "question": question,
+            "messages": [HumanMessage(content=question)],
+            "source_type": source_type,
+            "retries": 0,
+        },
         config=config,
     )
     return {
