@@ -26,7 +26,7 @@ dependencies = [
 skai = "skai.cli:app"
 
 [dependency-groups]
-dev = ["pytest>=8.0.0"]
+dev = ["pytest>=8.0.0", "fpdf2>=2.7.0"]
 # deepeval kept out of the default sync: it pulls heavy/conflicting deps and is
 # only needed for the keyed quality suite. Install with: uv sync --group eval
 eval = ["deepeval>=1.0.0"]
