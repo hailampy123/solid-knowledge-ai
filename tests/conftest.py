@@ -45,3 +45,23 @@ class DeterministicEmbeddingFunction(EmbeddingFunction[Documents]):
 @pytest.fixture
 def ef():
     return DeterministicEmbeddingFunction()
+
+
+class _Msg:
+    def __init__(self, content: str):
+        self.content = content
+
+
+class StubLLM:
+    """Offline chat model. `responder(system, user) -> str` drives each node."""
+
+    def __init__(self, responder):
+        self._responder = responder
+        self.calls: list[tuple[str, str]] = []
+
+    def invoke(self, messages):
+        system = messages[0].content
+        user = messages[-1].content
+        self.calls.append((system, user))
+        return _Msg(self._responder(system, user))
+
