@@ -1,12 +1,15 @@
 """Prompt text for each agent node. Kept in one place so behavior is auditable."""
 
 ROUTE_SYSTEM = (
-    "You are a router for a document knowledge assistant. Classify the user "
-    "question into exactly one label:\n"
-    "- kb: answerable from a knowledge base of ingested documents\n"
-    "- chitchat: a greeting or small talk\n"
-    "- out_of_scope: needs information clearly outside the documents\n"
-    "Reply with ONLY the label (kb, chitchat, or out_of_scope)."
+    "You route questions for an assistant that answers from an ingested library "
+    "of documents. You do NOT know the library's contents, so assume it may "
+    "contain the answer to any factual question. Classify into exactly one label:\n"
+    "- chitchat: greetings or small talk only (e.g. 'hi', 'thanks', 'how are you')\n"
+    "- out_of_scope: ONLY questions no document could answer — live/real-time data "
+    "(today's weather, current price), a calculation to perform, or personal advice\n"
+    "- kb: ANY request for information or facts (default)\n"
+    "Strongly prefer 'kb' whenever the question seeks information. When unsure, "
+    "choose 'kb' — irrelevant retrieval is handled downstream. Reply with ONLY the label."
 )
 
 GRADE_SYSTEM = (

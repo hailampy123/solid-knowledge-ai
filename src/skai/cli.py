@@ -10,7 +10,7 @@ from rich.console import Console
 
 from skai.agent.graph import answer_question, build_graph, make_checkpointer
 from skai.agent.llm import make_llm
-from skai.config import Settings, get_settings
+from skai.config import Settings, get_settings, resolve_model
 from skai.ingest.chunk import chunk_documents
 from skai.ingest.loaders import load_sources
 from skai.ingest.store import Store
@@ -23,6 +23,18 @@ console = Console()
 def _open_store(settings: Settings) -> Store:
     """Seam for tests to inject a deterministic embedding function."""
     return Store(settings.chroma_dir, settings.collection)
+
+
+def _settings_with_model(model: str | None) -> Settings:
+    """Settings with an optional per-invocation model override (alias resolved, Opus blocked)."""
+    settings = get_settings()
+    chosen = model or settings.model
+    try:
+        resolved = resolve_model(chosen)  # validates (blocks Opus) for both flag and .env
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(code=2)
+    return settings.model_copy(update={"model": resolved})
 
 
 def _read_urls(urls_file: str) -> list[str]:
@@ -72,14 +84,18 @@ def ingest(
     )
 
 
+_MODEL_HELP = "Model: haiku (default) | sonnet | any non-Opus LiteLLM id"
+
+
 @app.command()
 def ask(
     question: str,
     source: str = typer.Option(None, help="Filter: pdf | md | web"),
     thread_id: str = typer.Option("cli", help="Conversation thread for memory"),
+    model: str = typer.Option(None, "--model", "-m", help=_MODEL_HELP),
 ):
     """Ask a single question."""
-    settings = get_settings()
+    settings = _settings_with_model(model)
     graph = _build_agent(settings)
     out = answer_question(
         graph, question, thread_id=thread_id,
@@ -89,12 +105,12 @@ def ask(
 
 
 @app.command()
-def chat():
+def chat(model: str = typer.Option(None, "--model", "-m", help=_MODEL_HELP)):
     """Interactive multi-turn chat with memory."""
-    settings = get_settings()
+    settings = _settings_with_model(model)
     graph = _build_agent(settings)
     callbacks = get_callbacks(settings)
-    console.print("[bold]skai chat[/bold] — type 'exit' to quit.")
+    console.print(f"[bold]skai chat[/bold] ({resolve_model(settings.model)}) — type 'exit' to quit.")
     while True:
         try:
             q = console.input("[cyan]you> [/cyan]").strip()
