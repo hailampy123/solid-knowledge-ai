@@ -14,7 +14,7 @@ from skai.config import Settings, get_settings, resolve_model
 from skai.ingest.chunk import chunk_documents
 from skai.ingest.loaders import load_sources
 from skai.ingest.store import Store
-from skai.observability import get_callbacks
+from skai.observability import flush, get_callbacks
 
 app = typer.Typer(add_completion=False, help="Solid Knowledge AI — multi-source document assistant.")
 console = Console()
@@ -102,6 +102,7 @@ def ask(
         callbacks=get_callbacks(settings), source_type=source,
     )
     _print_answer(out)
+    flush(settings)  # ensure traces are sent before the process exits
 
 
 @app.command()
@@ -122,6 +123,7 @@ def chat(model: str = typer.Option(None, "--model", "-m", help=_MODEL_HELP)):
             continue
         out = answer_question(graph, q, thread_id="chat", callbacks=callbacks)
         _print_answer(out)
+        flush(settings)
 
 
 @app.command()

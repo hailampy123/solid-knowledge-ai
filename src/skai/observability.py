@@ -30,3 +30,16 @@ def get_callbacks(settings: Settings) -> list:
     except Exception as e:  # noqa: BLE001 - tracing must never break the app
         logger.warning("Langfuse disabled: %s", e)
         return []
+
+
+def flush(settings: Settings) -> None:
+    """Force-send buffered traces. Required for short-lived processes (a one-shot
+    CLI) where the background flush thread would otherwise not run before exit."""
+    if not settings.langfuse_enabled:
+        return
+    try:
+        from langfuse import get_client
+
+        get_client().flush()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Langfuse flush failed: %s", e)
