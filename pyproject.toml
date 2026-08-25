@@ -1,0 +1,43 @@
+[project]
+name = "solid-knowledge-ai"
+version = "0.1.0"
+description = "Multi-source (PDF/Markdown/web) knowledge assistant: a self-reflective LangGraph agent over ChromaDB, LiteLLM->Claude, traced with Langfuse, tested with DeepEval, exposed over MCP."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=0.2.0",
+    "langchain>=0.3.0",
+    "langchain-core>=0.3.0",
+    "langchain-litellm>=0.1.0",
+    "langchain-text-splitters>=0.3.0",
+    "litellm>=1.50.0",
+    "chromadb>=0.5.0",
+    "trafilatura>=1.12.0",
+    "pypdf>=5.0.0",
+    "httpx>=0.27.0",
+    "typer>=0.12.0",
+    "rich>=13.0.0",
+    "pydantic-settings>=2.4.0",
+    "langfuse>=2.50.0",
+    "mcp>=1.2.0",
+]
+
+[project.scripts]
+skai = "skai.cli:app"
+
+[dependency-groups]
+dev = ["pytest>=8.0.0"]
+# deepeval kept out of the default sync: it pulls heavy/conflicting deps and is
+# only needed for the keyed quality suite. Install with: uv sync --group eval
+eval = ["deepeval>=1.0.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/skai"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
