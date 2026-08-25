@@ -49,9 +49,10 @@ cp .env.example .env      # then edit .env
 # 3. Ingest the sample corpus (2 Markdown + 1 PDF + 1 Wikipedia article)
 uv run skai ingest        # -> builds ./.chroma  (local MiniLM embeddings, no API)
 
-# 4. Ask
+# 4. Ask (defaults to Haiku 4.5; switch per-call with --model)
 uv run skai ask "What do orcas eat?"
 uv run skai ask "How do orcas communicate?" --source md
+uv run skai ask "Summarize orca threats" --model sonnet   # haiku | sonnet (Opus blocked)
 
 # 5. Multi-turn chat (remembers the conversation)
 uv run skai chat
@@ -86,6 +87,20 @@ The server exposes two tools — `search_kb(query, source_type?)` (raw retrieval
   }
 }
 ```
+
+## Model selection
+
+Default is **Haiku 4.5** (fast, cheap — good for a Q&A router+grader+generator loop).
+Switch per call with `--model`, or globally via `SKAI_MODEL` in `.env`:
+
+| Value | Resolves to |
+|---|---|
+| `haiku` (default) | `anthropic/claude-haiku-4-5` |
+| `sonnet` | `anthropic/claude-sonnet-4-5` |
+| any LiteLLM id | passed through (e.g. `openai/gpt-4o-mini`) |
+
+Opus is intentionally blocked (`resolve_model` raises), so the assistant can't be
+pointed at the most expensive tier by accident.
 
 ## Observability
 

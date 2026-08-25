@@ -12,6 +12,26 @@ from functools import lru_cache
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Short aliases -> LiteLLM model ids. Opus is intentionally excluded.
+MODEL_ALIASES = {
+    "haiku": "anthropic/claude-haiku-4-5",
+    "sonnet": "anthropic/claude-sonnet-4-5",
+}
+
+
+def resolve_model(name: str) -> str:
+    """Map a short alias (haiku/sonnet) or a full id to a LiteLLM id.
+
+    Opus is blocked for this assistant (cost/latency choice for a Q&A agent).
+    """
+    resolved = MODEL_ALIASES.get(name.lower().strip(), name)
+    if "opus" in resolved.lower():
+        raise ValueError(
+            "Opus models are disabled for this assistant. Use 'haiku', 'sonnet', "
+            "or another non-Opus model id."
+        )
+    return resolved
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -22,7 +42,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
 
     # App-owned knobs (SKAI_ prefix)
-    model: str = Field(default="anthropic/claude-3-5-sonnet-latest", alias="SKAI_MODEL")
+    model: str = Field(default="anthropic/claude-haiku-4-5", alias="SKAI_MODEL")
     temperature: float = Field(default=0.0, alias="SKAI_TEMPERATURE")
     chroma_dir: str = Field(default="./.chroma", alias="SKAI_CHROMA_DIR")
     collection: str = Field(default="knowledge", alias="SKAI_COLLECTION")
