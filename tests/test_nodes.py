@@ -24,7 +24,7 @@ def test_route_classifies_kb_and_chitchat():
 
 def test_retrieve_fills_docs(tmp_path, ef):
     store = _seeded_store(tmp_path, ef)
-    out = nodes.retrieve({"question": "orca diet"}, store=store, top_k=2)
+    out = nodes.retrieve({"question": "orca diet"}, kb=store, top_k=2)
     assert out["docs"]
     assert all(isinstance(d, RetrievedChunk) for d in out["docs"])
 
