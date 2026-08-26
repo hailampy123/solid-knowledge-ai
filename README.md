@@ -161,6 +161,7 @@ src/skai/
 evals/                 DeepEval suite               tests/           offline unit + graph tests
 ```
 
+**Agent graph & component diagrams (Mermaid):** see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 **Design rationale and tech trade-offs:** see [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ## Status
