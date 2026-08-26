@@ -57,9 +57,27 @@ uv run skai ask "Summarize orca threats" --model sonnet   # haiku | sonnet (Opus
 # 5. Multi-turn chat (remembers the conversation)
 uv run skai chat
 
-# 6. Serve over MCP (stdio) for Claude Desktop / an IDE
+# 6. Web UI (chat + feedback + live data ingestion)
+uv run skai ui        # http://localhost:7860
+
+# 7. Serve over MCP (stdio) for Claude Desktop / an IDE
 uv run skai mcp
 ```
+
+## Web UI
+
+`skai ui` launches a Gradio app with the features a live demo needs:
+
+- **Chat** with per-session memory; every answer shows its **sources, route, and model**.
+- **Feedback after every response** — 👍/👎 + an optional comment, stored to SQLite
+  (`.skai/feedback.sqlite`) *and* pushed as a **Langfuse score on that turn's trace**
+  when tracing is on. That's the closed loop: real usage becomes an eval signal.
+- **Example prompts** to guide the first interaction.
+- **Grow the knowledge base live** — upload a `.md/.txt/.pdf` or paste a URL and it's
+  ingested into Chroma on the spot, so the demo isn't limited to the seed corpus.
+- **Model** (haiku/sonnet) and **source filter** (all/pdf/md/web) selectors.
+
+Feedback is exportable to a JSONL eval seed via `skai.feedback.export_jsonl`.
 
 ## Commands
 
@@ -68,6 +86,7 @@ uv run skai mcp
 | `skai ingest [--path data/docs --urls data/urls.txt --reset]` | Load → chunk → embed → persist to Chroma |
 | `skai ask "..." [--source pdf\|md\|web] [--thread-id X]` | One-shot question with citations |
 | `skai chat` | Interactive multi-turn chat with memory |
+| `skai ui [--port 7860 --share]` | Gradio web UI: chat, feedback, live ingestion |
 | `skai mcp` | Run the MCP server exposing `search_kb` and `ask` |
 | `skai eval` | Run the DeepEval quality suite (needs `--group eval` + key) |
 

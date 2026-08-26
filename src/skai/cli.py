@@ -135,6 +135,17 @@ def mcp():
 
 
 @app.command()
+def ui(
+    port: int = typer.Option(7860, help="Port to serve the UI on"),
+    share: bool = typer.Option(False, help="Create a public Gradio share link"),
+):
+    """Launch the Gradio chat UI (feedback, examples, live data ingestion)."""
+    from skai.ui import launch
+
+    launch(server_port=port, share=share)
+
+
+@app.command()
 def eval():
     """Run the DeepEval quality suite (needs `uv sync --group eval` + a key)."""
     try:
