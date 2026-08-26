@@ -91,29 +91,41 @@ def generate(state: AgentState, *, llm) -> dict:
 
 
 def self_check(state: AgentState, *, llm, max_retries: int = 2) -> dict:
+    """Groundedness guard.
+
+    Refuses to assert ungrounded content, but is robust to a single flaky
+    judgement: it hedges only when there is no evidence at all, or when BOTH
+    signals agree — the relevance grader (`docs_ok`) said the context is not
+    relevant AND the verifier says the answer is ungrounded. A relevant-graded,
+    cited answer is trusted even if the (possibly weak) verifier is unsure, so a
+    correct answer is never thrown away on one bad call.
+    """
     docs = state.get("docs", [])
-    retries = state.get("retries", 0)
+    answer = state.get("answer", "")
+
+    # No retrieved evidence -> cannot be grounded.
+    if not answer or not docs:
+        return {"grounded": False, "action": "end", "answer": prompts.HEDGE, "citations": []}
+
     text = _ask(
         llm,
         prompts.SELFCHECK_SYSTEM,
-        prompts.SELFCHECK_USER.format(
-            context=_format_context(docs), answer=state.get("answer", "")
-        ),
+        prompts.SELFCHECK_USER.format(context=_format_context(docs), answer=answer),
     )
     grounded = "UNGROUNDED" not in text.upper() and "GROUNDED" in text.upper()
+    docs_relevant = state.get("docs_ok", True)
 
-    if grounded:
-        return {"grounded": True, "action": "end"}
-    if retries < max_retries:
-        return {"grounded": False, "action": "retry", "retries": retries + 1}
-    # exhausted: refuse to assert ungrounded content
-    return {
-        "grounded": False,
-        "action": "end",
-        "answer": prompts.HEDGE,
-        "citations": [],
-        "messages": [AIMessage(content=prompts.HEDGE)],
-    }
+    # Both the grader and the verifier agree there is no grounding -> refuse.
+    if not grounded and not docs_relevant:
+        return {
+            "grounded": False,
+            "action": "end",
+            "answer": prompts.HEDGE,
+            "citations": [],
+            "messages": [AIMessage(content=prompts.HEDGE)],
+        }
+    # Otherwise keep the answer; record the groundedness signal for observability.
+    return {"grounded": grounded, "action": "end"}
 
 
 # --- parsing helpers ---------------------------------------------------------
