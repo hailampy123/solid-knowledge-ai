@@ -1,11 +1,12 @@
 """Wire the nodes into a self-reflective corrective-RAG StateGraph.
 
-    route ─kb─▶ retrieve ─▶ grade_docs ─retry─▶ retrieve
-      │                         │
-   other                    generate ─kb─▶ self_check ─retry─▶ retrieve
-      └────────▶ generate ─▶ END          └── end ──▶ END
+    route ─kb─▶ retrieve ─▶ grade_docs ─irrelevant(rewrite,retry)─▶ retrieve
+      │                         │ relevant
+   other                    generate ─kb─▶ self_check ─▶ END
+      └────────▶ generate ─▶ END
 
-A shared `retries` budget (max_retries) bounds both correction loops.
+Correction (query rewrite) happens in grade_docs, bounded by `max_retries`.
+self_check is a terminal groundedness guard (see nodes.self_check).
 """
 from __future__ import annotations
 
@@ -45,11 +46,9 @@ def build_graph(store, llm, *, top_k: int = 5, max_retries: int = 2, checkpointe
         lambda s: "self_check" if s.get("route") == "kb" else END,
         {"self_check": "self_check", END: END},
     )
-    g.add_conditional_edges(
-        "self_check",
-        lambda s: "retrieve" if s.get("action") == "retry" else END,
-        {"retrieve": "retrieve", END: END},
-    )
+    # self_check is terminal: re-querying the same question would return the same
+    # docs, so a retry loop here can't help. Correction happens in grade_docs.
+    g.add_edge("self_check", END)
 
     return g.compile(checkpointer=checkpointer)
 

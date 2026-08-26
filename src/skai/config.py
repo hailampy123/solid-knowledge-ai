@@ -43,11 +43,16 @@ class Settings(BaseSettings):
 
     # App-owned knobs (SKAI_ prefix)
     model: str = Field(default="anthropic/claude-haiku-4-5", alias="SKAI_MODEL")
+    # DeepEval judge model; falls back to `model` when unset. A stronger judge
+    # (e.g. sonnet) grades more reliably than the agent's own model.
+    judge_model: str | None = Field(default=None, alias="SKAI_JUDGE_MODEL")
     temperature: float = Field(default=0.0, alias="SKAI_TEMPERATURE")
     chroma_dir: str = Field(default="./.chroma", alias="SKAI_CHROMA_DIR")
     collection: str = Field(default="knowledge", alias="SKAI_COLLECTION")
     memory_db: str = Field(default="./.skai/memory.sqlite", alias="SKAI_MEMORY_DB")
-    top_k: int = Field(default=5, alias="SKAI_TOP_K")
+    # Lower k keeps retrieved context focused: fewer off-topic chunks dilute the
+    # answer and score better on contextual-relevancy. Raise for broader recall.
+    top_k: int = Field(default=3, alias="SKAI_TOP_K")
     max_retries: int = Field(default=2, alias="SKAI_MAX_RETRIES")
 
     # Observability (Langfuse-standard names). Absent keys => tracing disabled.

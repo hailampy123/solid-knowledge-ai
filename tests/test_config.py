@@ -9,7 +9,7 @@ def test_code_defaults():
     assert f["model"].default == "anthropic/claude-haiku-4-5"
     assert f["chroma_dir"].default == "./.chroma"
     assert f["collection"].default == "knowledge"
-    assert f["top_k"].default == 5
+    assert f["top_k"].default == 3
     assert f["max_retries"].default == 2
 
 

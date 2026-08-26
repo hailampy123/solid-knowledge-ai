@@ -71,16 +71,41 @@ def test_generate_out_of_scope_declines_without_llm():
     assert called == []
 
 
+def _doc():
+    return RetrievedChunk("orcas are dolphins", {"source_id": "a"}, 0.9)
+
+
 def test_self_check_grounded_ends():
     llm = StubLLM(lambda s, u: "GROUNDED")
-    out = nodes.self_check({"docs": [], "answer": "x", "retries": 0}, llm=llm, max_retries=2)
+    state = {"docs": [_doc()], "docs_ok": True, "answer": "x [a]", "citations": ["a"]}
+    out = nodes.self_check(state, llm=llm, max_retries=2)
     assert out["grounded"] is True
     assert out["action"] == "end"
 
 
-def test_self_check_ungrounded_exhausted_hedges():
-    llm = StubLLM(lambda s, u: "UNGROUNDED")
-    out = nodes.self_check({"docs": [], "answer": "hallucinated", "retries": 2}, llm=llm, max_retries=2)
+def test_self_check_hedges_when_no_docs():
+    llm = StubLLM(lambda s, u: "GROUNDED")  # never consulted
+    out = nodes.self_check({"docs": [], "answer": "x"}, llm=llm, max_retries=2)
     assert out["action"] == "end"
     assert out["answer"] == prompts.HEDGE
     assert out["citations"] == []
+
+
+def test_self_check_hedges_when_both_signals_agree_ungrounded():
+    llm = StubLLM(lambda s, u: "UNGROUNDED")
+    state = {"docs": [_doc()], "docs_ok": False, "answer": "hallucinated [a]", "citations": ["a"]}
+    out = nodes.self_check(state, llm=llm, max_retries=2)
+    assert out["action"] == "end"
+    assert out["answer"] == prompts.HEDGE
+    assert out["citations"] == []
+
+
+def test_self_check_trusts_relevant_cited_answer_even_if_verifier_unsure():
+    # grade said relevant (docs_ok True) but the weak verifier says UNGROUNDED:
+    # the answer must be kept, not discarded.
+    llm = StubLLM(lambda s, u: "UNGROUNDED")
+    state = {"docs": [_doc()], "docs_ok": True, "answer": "orcas are dolphins [a]", "citations": ["a"]}
+    out = nodes.self_check(state, llm=llm, max_retries=2)
+    assert out["action"] == "end"
+    assert out["grounded"] is False  # flagged...
+    assert "answer" not in out  # ...but the good answer is not overwritten
