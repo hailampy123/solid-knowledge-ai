@@ -21,20 +21,26 @@ flowchart TD
     grade_docs -- "irrelevant → rewrite query (retries < max)" --> retrieve
 
     generate -- "route = kb" --> self_check
-    generate -- "chitchat / out_of_scope" --> END([END])
-    self_check --> END
+    generate -- "chitchat / out_of_scope" --> END1([END])
+    self_check --> END2([END])
 
-    classDef guard fill:#fff2cc,stroke:#d6b656;
-    class grade_docs,self_check guard;
+    classDef llmNode fill:#e6ccff,stroke:#7a3fbf,stroke-width:2px;
+    classDef toolNode fill:#cce5ff,stroke:#2b6cb0,stroke-width:2px;
+    class route,grade_docs,generate,self_check llmNode;
+    class retrieve toolNode;
 ```
 
-| Node | Role |
-|---|---|
-| `route` | LLM classifies → `kb` / `chitchat` / `out_of_scope`; skips retrieval for the last two |
-| `retrieve` | Vector search over ChromaDB (`kb.query`, optional `source_type` filter) — the only internal tool |
-| `grade_docs` | LLM relevance gate; if weak → rewrites the query and loops back (corrective RAG), bounded by `max_retries` |
-| `generate` | Synthesizes an answer with `[source_id]` citations; declines directly for out_of_scope, LLM reply for chitchat |
-| `self_check` | Groundedness guard: hedges only with no evidence, or when grader **and** verifier both say ungrounded; never discards a relevant, cited answer |
+🟣 purple = calls the LLM · 🔵 blue = deterministic code, no LLM call
+
+| Node | LLM? | Role |
+|---|---|---|
+| `route` | ✅ LLM | Classifies → `kb` / `chitchat` / `out_of_scope`; skips retrieval for the last two |
+| `retrieve` | ❌ no LLM | Vector search over ChromaDB (`kb.query`, optional `source_type` filter) — the only internal tool, plain Python |
+| `grade_docs` | ✅ LLM | Relevance gate; if weak → rewrites the query and loops back (corrective RAG), bounded by `max_retries` |
+| `generate` | ✅ LLM (usually) | Synthesizes an answer with `[source_id]` citations. Exception: the `out_of_scope` branch returns a static string with **no LLM call** |
+| `self_check` | ✅ LLM (usually) | Groundedness guard: hedges only with no evidence, or when grader **and** verifier both say ungrounded. Exception: skips the LLM call entirely when there's no answer/no docs (nothing to verify) |
+
+So **4 of 5 nodes are LLM calls**; `retrieve` is the one purely-deterministic node (a Chroma query, no model involved). `generate`/`self_check` each have one non-LLM shortcut branch, noted above.
 
 Shared `AgentState` (a `TypedDict`) is patched by each node:
 `question, messages, source_type, route, docs, docs_ok, answer, citations, grounded, retries`.
@@ -49,23 +55,34 @@ external MCP clients as tools — it is not something the agent calls.
 
 ```mermaid
 flowchart LR
-    subgraph clients [Entry points]
+    subgraph clients ["Entry points"]
         cli["CLI: skai ask / chat"]
         ui["Gradio UI"]
-        mcpc["MCP client<br/>(Claude Desktop / IDE)"]
+        mcpc["MCP client (Claude Desktop / IDE)"]
     end
 
-    mcpc -- "search_kb / ask (inbound MCP)" --> mcps["mcp_server.py"]
+    mcpc -->|"search_kb / ask (inbound MCP)"| mcps["mcp_server.py"]
     cli --> aq["answer_question()"]
-    ui  --> aq
+    ui --> aq
     mcps --> aq
 
-    aq --> graph["LangGraph agent"]
-    graph -- "retrieve node" --> store[("ChromaDB<br/>local MiniLM embeddings")]
-    graph -- "_ask() every node" --> llm["LiteLLM → Claude"]
-    graph -. "callbacks" .-> lf["Langfuse tracing"]
-    graph -- "checkpointer" --> mem[("SQLite<br/>thread memory")]
+    aq --> agentGraph["LangGraph agent (route/grade/generate/self_check)"]
+    agentGraph -->|"retrieve node"| store[("ChromaDB (local MiniLM embeddings)")]
+    agentGraph -->|"every LLM node calls"| llm["LiteLLM to Claude"]
+    agentGraph -->|"callbacks"| lf["Langfuse tracing"]
+    agentGraph -->|"checkpointer"| mem[("SQLite thread memory")]
+
+    classDef llmNode fill:#e6ccff,stroke:#7a3fbf,stroke-width:2px;
+    classDef toolNode fill:#cce5ff,stroke:#2b6cb0,stroke-width:2px;
+    classDef infra fill:#d9d9d9,stroke:#666,stroke-width:1px;
+    class llm llmNode;
+    class store toolNode;
+    class mcps,aq,agentGraph,mem,lf infra;
 ```
+
+🟣 purple = the LLM itself · 🔵 blue = a tool the agent calls (vector store) ·
+⚪ grey = orchestration/infra — no model reasoning happens here (MCP server,
+`answer_question`, the LangGraph wrapper itself, SQLite memory, Langfuse tracing)
 
 - **Inbound:** skai is a tool others call (`search_kb`, `ask`) over MCP.
 - **Outbound:** the agent calls no MCP tools and uses no model function-calling —
