@@ -1,0 +1,223 @@
+"""Gradio UI for the knowledge agent.
+
+Features: chat with per-session memory, source/route/model transparency, 👍/👎
+feedback (local + Langfuse score), example prompts, and live data enrichment
+(upload a file or add a URL to grow the knowledge base mid-demo).
+
+Run:  skai ui
+"""
+from __future__ import annotations
+
+from functools import lru_cache
+from pathlib import Path
+from uuid import uuid4
+
+import gradio as gr
+
+from skai import feedback
+from skai.agent.graph import answer_question, build_graph, make_checkpointer
+from skai.agent.llm import make_llm
+from skai.config import Settings, get_settings, resolve_model
+from skai.ingest.chunk import chunk_documents
+from skai.ingest.loaders import load_markdown, load_pdf, load_web
+from skai.ingest.store import Store
+from skai.observability import get_callbacks
+
+EXAMPLES = [
+    "What do orcas eat?",
+    "How do orcas communicate?",
+    "What threats do orcas face?",
+]
+
+
+@lru_cache
+def _store() -> Store:
+    s = get_settings()
+    return Store(s.chroma_dir, s.collection)
+
+
+@lru_cache
+def _graph(model: str):
+    """One compiled graph per model; all share the single persistent store."""
+    s = get_settings().model_copy(update={"model": resolve_model(model)})
+    return build_graph(
+        _store(),
+        make_llm(s, callbacks=[]),
+        top_k=s.top_k,
+        max_retries=s.max_retries,
+        checkpointer=make_checkpointer(s.memory_db),
+    )
+
+
+def _stats_md() -> str:
+    s = get_settings()
+    fb = feedback.stats(s.memory_db.replace("memory.sqlite", "feedback.sqlite"))
+    return (
+        f"**Knowledge base:** {_store().count()} chunks\n\n"
+        f"**Feedback:** 👍 {fb['up']} · 👎 {fb['down']}"
+    )
+
+
+def _feedback_db() -> str:
+    return get_settings().memory_db.replace("memory.sqlite", "feedback.sqlite")
+
+
+def _answer(message: str, model: str, source_filter: str, thread_id: str) -> dict:
+    settings = get_settings().model_copy(update={"model": resolve_model(model)})
+    graph = _graph(model)
+    source = None if source_filter == "all" else source_filter
+    callbacks = get_callbacks(settings)
+    trace_id = None
+
+    if settings.langfuse_enabled:
+        try:
+            from langfuse import get_client
+
+            client = get_client()
+            with client.start_as_current_span(name="skai-ui-turn") as span:
+                trace_id = span.trace_id
+                out = answer_question(graph, message, thread_id=thread_id, callbacks=callbacks, source_type=source)
+                client.update_current_trace(input=message, output=out["answer"])
+            client.flush()
+        except Exception:  # noqa: BLE001 - tracing must not break the chat
+            out = answer_question(graph, message, thread_id=thread_id, callbacks=callbacks, source_type=source)
+    else:
+        out = answer_question(graph, message, thread_id=thread_id, callbacks=callbacks, source_type=source)
+
+    out["trace_id"] = trace_id
+    out["model"] = resolve_model(model)
+    return out
+
+
+def _render(out: dict) -> str:
+    parts = [out["answer"]]
+    if out.get("citations"):
+        parts.append("\n\n---\n**Sources:** " + ", ".join(f"`{c}`" for c in out["citations"]))
+    parts.append(f"\n<sub>route: `{out.get('route')}` · model: `{out.get('model')}`</sub>")
+    return "".join(parts)
+
+
+# --- event handlers ----------------------------------------------------------
+
+def on_send(message, history, model, source_filter, thread_id):
+    message = (message or "").strip()
+    if not message:
+        return history, "", None, gr.update(visible=False), ""
+    history = (history or []) + [{"role": "user", "content": message}]
+    out = _answer(message, model, source_filter, thread_id)
+    history = history + [{"role": "assistant", "content": _render(out)}]
+    last = {
+        "question": message, "answer": out["answer"], "route": out.get("route"),
+        "model": out.get("model"), "citations": out.get("citations", []),
+        "trace_id": out.get("trace_id"),
+    }
+    return history, "", last, gr.update(visible=True), ""
+
+
+def on_feedback(rating, comment, last):
+    if not last:
+        return "No response to rate yet."
+    settings = get_settings()
+    feedback.record(_feedback_db(), rating=rating, comment=comment or "", **last)
+    feedback.push_langfuse_score(settings, last.get("trace_id"), rating, comment or "")
+    return f"Thanks — recorded 👍/👎 as **{rating}**."
+
+
+def on_clear():
+    # new thread id => fresh agent memory for the next conversation
+    return [], str(uuid4()), None, gr.update(visible=False), ""
+
+
+def on_ingest_file(file):
+    if not file:
+        return _stats_md(), "No file selected."
+    path = Path(file.name if hasattr(file, "name") else file)
+    ext = path.suffix.lower()
+    try:
+        if ext in {".md", ".markdown", ".txt"}:
+            docs = load_markdown(path)
+        elif ext == ".pdf":
+            docs = load_pdf(path)
+        else:
+            return _stats_md(), f"Unsupported file type: {ext}"
+        n = _store().add(chunk_documents(docs))
+        return _stats_md(), f"Ingested **{path.name}** → {n} chunks."
+    except Exception as e:  # noqa: BLE001
+        return _stats_md(), f"Failed to ingest {path.name}: {e}"
+
+
+def on_ingest_url(url):
+    url = (url or "").strip()
+    if not url:
+        return _stats_md(), "", "Enter a URL first."
+    try:
+        n = _store().add(chunk_documents(load_web(url)))
+        return _stats_md(), "", f"Ingested **{url}** → {n} chunks."
+    except Exception as e:  # noqa: BLE001
+        return _stats_md(), url, f"Failed to ingest {url}: {e}"
+
+
+# --- layout ------------------------------------------------------------------
+
+def build_ui() -> gr.Blocks:
+    with gr.Blocks(title="Solid Knowledge AI", fill_height=True) as demo:
+        gr.Markdown(
+            "# 🐋 Solid Knowledge AI\n"
+            "Ask questions across ingested PDF / Markdown / web sources. The agent "
+            "self-checks its retrieval and answer, cites sources, and declines when "
+            "it can't ground an answer."
+        )
+        thread = gr.State(str(uuid4()))
+        last = gr.State(None)
+
+        with gr.Row():
+            with gr.Column(scale=3):
+                chatbot = gr.Chatbot(height=460, show_label=False)
+                msg = gr.Textbox(placeholder="Ask about orcas…", show_label=False, autofocus=True)
+                with gr.Row():
+                    send = gr.Button("Send", variant="primary")
+                    clear = gr.Button("Clear conversation")
+                gr.Examples(EXAMPLES, inputs=msg, label="Try an example")
+                with gr.Row(visible=False) as fb_row:
+                    up = gr.Button("👍 Helpful", size="sm")
+                    down = gr.Button("👎 Not helpful", size="sm")
+                    comment = gr.Textbox(placeholder="optional comment", show_label=False, scale=3, container=False)
+                fb_status = gr.Markdown("")
+
+            with gr.Column(scale=1):
+                model = gr.Dropdown(["haiku", "sonnet"], value="haiku", label="Model")
+                source_filter = gr.Dropdown(["all", "pdf", "md", "web"], value="all", label="Source filter")
+                stats = gr.Markdown(_stats_md)
+                gr.Markdown("### Grow the knowledge base")
+                file = gr.File(label="Upload .md / .txt / .pdf", file_types=[".md", ".txt", ".pdf"])
+                add_file = gr.Button("Ingest file")
+                url = gr.Textbox(label="…or add a URL")
+                add_url = gr.Button("Ingest URL")
+                ingest_status = gr.Markdown("")
+
+        send_args = dict(
+            fn=on_send,
+            inputs=[msg, chatbot, model, source_filter, thread],
+            outputs=[chatbot, msg, last, fb_row, fb_status],
+        )
+        send.click(**send_args)
+        msg.submit(**send_args)
+
+        up.click(lambda c, l: on_feedback("up", c, l), [comment, last], fb_status)
+        down.click(lambda c, l: on_feedback("down", c, l), [comment, last], fb_status)
+        up.click(_stats_md, None, stats)
+        down.click(_stats_md, None, stats)
+
+        clear.click(on_clear, None, [chatbot, thread, last, fb_row, fb_status])
+        add_file.click(on_ingest_file, file, [stats, ingest_status])
+        add_url.click(on_ingest_url, url, [stats, url, ingest_status])
+
+    return demo
+
+
+def launch(**kwargs) -> None:
+    build_ui().launch(**kwargs)
+
+
+if __name__ == "__main__":
+    launch()

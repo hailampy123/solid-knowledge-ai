@@ -21,6 +21,7 @@ dependencies = [
     "pydantic-settings>=2.4.0",
     "langfuse>=2.50.0",
     "mcp>=2.1.0",
+    "gradio>=4.44.0",
 ]
 
 [project.scripts]
