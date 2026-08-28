@@ -95,6 +95,9 @@ termination (bounded retries) is an explicit test, not an assumption.
 
 ## Scale-up notes (talking points, not built — YAGNI)
 
+Expanded into a ranked, phased proposal in [`CAPABILITY-ROADMAP.md`](CAPABILITY-ROADMAP.md);
+Google Cloud / Gemini Enterprise CX deployment in [`GEMINI-ENTERPRISE-PORT.md`](GEMINI-ENTERPRISE-PORT.md).
+
 - **Multi-agent supervisor** routing a specialist agent per source/domain.
 - **Semantic long-term memory** (vector-backed user memory) alongside the checkpointer.
 - **Provider embeddings + reranking** (Voyage/Cohere) when precision beats portability.
