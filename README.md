@@ -109,7 +109,7 @@ The server exposes two tools — `search_kb(query, source_type?)` (raw retrieval
 
 ## Model selection
 
-Default is **Haiku 4.5** (fast, cheap — good for a Q&A router+grader+generator loop).
+Default  **Haiku 4.5** (fast, cheap — good for a Q&A router+grader+generator loop).
 Switch per call with `--model`, or globally via `SKAI_MODEL` in `.env`:
 
 | Value | Resolves to |
@@ -164,10 +164,10 @@ evals/                 DeepEval suite               tests/           offline uni
 **Agent graph & component diagrams (Mermaid):** see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 **Design rationale and tech trade-offs:** see [`docs/DECISIONS.md`](docs/DECISIONS.md).
 **Where it goes next (capability & use cases):** see [`docs/CAPABILITY-ROADMAP.md`](docs/CAPABILITY-ROADMAP.md).
-**Running it on Gemini Enterprise CX / Google Cloud:** see [`docs/GEMINI-ENTERPRISE-PORT.md`](docs/GEMINI-ENTERPRISE-PORT.md).
+**Running it on Gemini Enterprise CX / Google Cloud:** see [`docs/GEMINI-ENTERPRISE-PORT.md`](docs/GEMINI-ENTERPRISE-PORT.md)
 
 ## Status
 
 Verified: `uv run skai ingest` loads all three source types (2 md + 1 pdf + 1 web →
 170 chunks) and real semantic retrieval returns relevant passages. 39 offline tests
-pass. `ask`/`chat`/`eval` require an `ANTHROPIC_API_KEY`.
+pass. `ask`/`chat`/`eval` require an `ANTHROPIC_API_KEY`
