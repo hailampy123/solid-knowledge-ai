@@ -24,8 +24,8 @@ flowchart TD
     generate -- "chitchat / out_of_scope" --> END1([END])
     self_check --> END2([END])
 
-    classDef llmNode fill:#e6ccff,stroke:#7a3fbf,stroke-width:2px;
-    classDef toolNode fill:#cce5ff,stroke:#2b6cb0,stroke-width:2px;
+    classDef llmNode fill:#6b21a8,stroke:#3b0764,stroke-width:2px,color:#ffffff;
+    classDef toolNode fill:#1e40af,stroke:#172554,stroke-width:2px,color:#ffffff;
     class route,grade_docs,generate,self_check llmNode;
     class retrieve toolNode;
 ```
@@ -72,9 +72,9 @@ flowchart LR
     agentGraph -->|"callbacks"| lf["Langfuse tracing"]
     agentGraph -->|"checkpointer"| mem[("SQLite thread memory")]
 
-    classDef llmNode fill:#e6ccff,stroke:#7a3fbf,stroke-width:2px;
-    classDef toolNode fill:#cce5ff,stroke:#2b6cb0,stroke-width:2px;
-    classDef infra fill:#d9d9d9,stroke:#666,stroke-width:1px;
+    classDef llmNode fill:#6b21a8,stroke:#3b0764,stroke-width:2px,color:#ffffff;
+    classDef toolNode fill:#1e40af,stroke:#172554,stroke-width:2px,color:#ffffff;
+    classDef infra fill:#374151,stroke:#111827,stroke-width:1px,color:#ffffff;
     class llm llmNode;
     class store toolNode;
     class mcps,aq,agentGraph,mem,lf infra;
