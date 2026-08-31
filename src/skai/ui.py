@@ -15,7 +15,7 @@ from uuid import uuid4
 import gradio as gr
 
 from skai import feedback
-from skai.agent.graph import answer_question, build_graph, make_checkpointer
+from skai.agent.graph import CORRECTION_BANNER, astream_answer, build_graph, make_checkpointer
 from skai.agent.llm import make_llm
 from skai.config import Settings, get_settings, resolve_model
 from skai.ingest.chunk import chunk_documents
@@ -46,6 +46,8 @@ def _graph(model: str):
         top_k=s.top_k,
         max_retries=s.max_retries,
         checkpointer=make_checkpointer(s.memory_db),
+        pii_redaction=s.pii_redaction,
+        refusal_topics=s.refusal_topics,
     )
 
 
@@ -62,31 +64,21 @@ def _feedback_db() -> str:
     return get_settings().memory_db.replace("memory.sqlite", "feedback.sqlite")
 
 
-def _answer(message: str, model: str, source_filter: str, thread_id: str) -> dict:
-    settings = get_settings().model_copy(update={"model": resolve_model(model)})
-    graph = _graph(model)
-    source = None if source_filter == "all" else source_filter
-    callbacks = get_callbacks(settings)
-    trace_id = None
+def _open_trace_span(settings: Settings):
+    """Open a Langfuse span for this turn (best-effort). Returns (client, cm, span)
+    or (None, None, None). The graph's callbacks already trace LLM calls; this span
+    groups them and yields a trace_id so feedback can be scored against the turn."""
+    if not settings.langfuse_enabled:
+        return None, None, None
+    try:
+        from langfuse import get_client
 
-    if settings.langfuse_enabled:
-        try:
-            from langfuse import get_client
-
-            client = get_client()
-            with client.start_as_current_span(name="skai-ui-turn") as span:
-                trace_id = span.trace_id
-                out = answer_question(graph, message, thread_id=thread_id, callbacks=callbacks, source_type=source)
-                client.update_current_trace(input=message, output=out["answer"])
-            client.flush()
-        except Exception:  # noqa: BLE001 - tracing must not break the chat
-            out = answer_question(graph, message, thread_id=thread_id, callbacks=callbacks, source_type=source)
-    else:
-        out = answer_question(graph, message, thread_id=thread_id, callbacks=callbacks, source_type=source)
-
-    out["trace_id"] = trace_id
-    out["model"] = resolve_model(model)
-    return out
+        client = get_client()
+        cm = client.start_as_current_span(name="skai-ui-turn")
+        span = cm.__enter__()
+        return client, cm, span
+    except Exception:  # noqa: BLE001 - tracing must never break the chat
+        return None, None, None
 
 
 def _render(out: dict) -> str:
@@ -99,19 +91,70 @@ def _render(out: dict) -> str:
 
 # --- event handlers ----------------------------------------------------------
 
-def on_send(message, history, model, source_filter, thread_id):
+async def on_send(message, history, model, source_filter, thread_id):
+    """Stream a turn into the chat: grow the assistant bubble as tokens arrive,
+    show node status while waiting, append a correction banner if self_check
+    (post-hoc) found the answer ungrounded."""
     message = (message or "").strip()
     if not message:
-        return history, "", None, gr.update(visible=False), ""
-    history = (history or []) + [{"role": "user", "content": message}]
-    out = _answer(message, model, source_filter, thread_id)
-    history = history + [{"role": "assistant", "content": _render(out)}]
+        yield history, "", None, gr.update(visible=False), ""
+        return
+
+    settings = get_settings().model_copy(update={"model": resolve_model(model)})
+    resolved = resolve_model(model)
+    graph = _graph(model)
+    source = None if source_filter == "all" else source_filter
+    callbacks = get_callbacks(settings)
+    history = (history or []) + [
+        {"role": "user", "content": message},
+        {"role": "assistant", "content": "_…_"},
+    ]
+
+    client, cm, span = _open_trace_span(settings)
+    trace_id = getattr(span, "trace_id", None) if span is not None else None
+    acc, citations, route, corrected = "", [], None, False
+    try:
+        async for ev in astream_answer(
+            graph, message, thread_id=thread_id, callbacks=callbacks, source_type=source
+        ):
+            kind = ev["type"]
+            if kind == "status":
+                if not acc:  # only show status before the first token
+                    history[-1]["content"] = f"_{ev['label']}_"
+                    yield history, "", None, gr.update(visible=False), ""
+            elif kind == "token":
+                acc += ev["text"]
+                history[-1]["content"] = acc
+                yield history, "", None, gr.update(visible=False), ""
+            elif kind == "correction":
+                corrected = True
+            elif kind == "final":
+                acc = acc or ev["answer"]
+                citations = ev.get("citations", [])
+                route = ev.get("route")
+        if client is not None:
+            try:
+                client.update_current_trace(input=message, output=acc)
+            except Exception:  # noqa: BLE001
+                pass
+    finally:
+        if cm is not None:
+            cm.__exit__(None, None, None)
+        if client is not None:
+            try:
+                client.flush()
+            except Exception:  # noqa: BLE001
+                pass
+
+    rendered = _render({"answer": acc, "citations": citations, "route": route, "model": resolved})
+    if corrected:
+        rendered = f"> {CORRECTION_BANNER}\n\n" + rendered
+    history[-1]["content"] = rendered
     last = {
-        "question": message, "answer": out["answer"], "route": out.get("route"),
-        "model": out.get("model"), "citations": out.get("citations", []),
-        "trace_id": out.get("trace_id"),
+        "question": message, "answer": acc, "route": route,
+        "model": resolved, "citations": citations, "trace_id": trace_id,
     }
-    return history, "", last, gr.update(visible=True), ""
+    yield history, "", last, gr.update(visible=True), ""
 
 
 def on_feedback(rating, comment, last):

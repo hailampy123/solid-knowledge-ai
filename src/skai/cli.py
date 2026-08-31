@@ -1,14 +1,14 @@
 """Typer CLI: ingest | ask | chat | mcp | eval."""
 from __future__ import annotations
 
+import asyncio
 import subprocess
-import sys
 from pathlib import Path
 
 import typer
 from rich.console import Console
 
-from skai.agent.graph import answer_question, build_graph, make_checkpointer
+from skai.agent.graph import astream_answer, build_graph, make_checkpointer
 from skai.agent.llm import make_llm
 from skai.config import Settings, get_settings, resolve_model
 from skai.ingest.chunk import chunk_documents
@@ -18,6 +18,7 @@ from skai.observability import flush, get_callbacks
 
 app = typer.Typer(add_completion=False, help="Solid Knowledge AI — multi-source document assistant.")
 console = Console()
+err_console = Console(stderr=True)  # node status goes here so stdout is just the answer
 
 
 def _open_store(settings: Settings) -> Store:
@@ -55,8 +56,40 @@ def _build_agent(settings: Settings):
     graph = build_graph(
         store, llm, top_k=settings.top_k, max_retries=settings.max_retries,
         checkpointer=checkpointer,
+        pii_redaction=settings.pii_redaction, refusal_topics=settings.refusal_topics,
     )
     return graph
+
+
+def _stream_answer(graph, question, thread_id, callbacks, source) -> dict:
+    """Stream a turn to the console: status on stderr, tokens on stdout as they
+    arrive, then citations/route. Returns the final event dict."""
+    async def go() -> dict:
+        streamed = False
+        final: dict = {}
+        async for ev in astream_answer(
+            graph, question, thread_id=thread_id, callbacks=callbacks, source_type=source
+        ):
+            kind = ev["type"]
+            if kind == "status":
+                err_console.print(f"[dim]{ev['label']}[/dim]")
+            elif kind == "token":
+                streamed = True
+                console.print(ev["text"], end="", highlight=False)
+            elif kind == "correction":
+                console.print(f"\n[yellow]{ev['text']}[/yellow]")
+            elif kind == "final":
+                final = ev
+        if streamed:
+            console.print()  # newline after the streamed answer
+        else:
+            console.print(f"[bold green]answer[/bold green]: {final.get('answer', '')}")
+        if final.get("citations"):
+            console.print(f"[dim]sources: {', '.join(final['citations'])}[/dim]")
+        console.print(f"[dim]route: {final.get('route')}[/dim]")
+        return final
+
+    return asyncio.run(go())
 
 
 @app.command()
@@ -97,11 +130,7 @@ def ask(
     """Ask a single question."""
     settings = _settings_with_model(model)
     graph = _build_agent(settings)
-    out = answer_question(
-        graph, question, thread_id=thread_id,
-        callbacks=get_callbacks(settings), source_type=source,
-    )
-    _print_answer(out)
+    _stream_answer(graph, question, thread_id, get_callbacks(settings), source)
     flush(settings)  # ensure traces are sent before the process exits
 
 
@@ -121,8 +150,7 @@ def chat(model: str = typer.Option(None, "--model", "-m", help=_MODEL_HELP)):
             break
         if not q:
             continue
-        out = answer_question(graph, q, thread_id="chat", callbacks=callbacks)
-        _print_answer(out)
+        _stream_answer(graph, q, "chat", callbacks, None)
         flush(settings)
 
 
@@ -153,13 +181,6 @@ def eval():
     except FileNotFoundError:
         console.print("[red]deepeval not installed.[/red] Run: uv sync --group eval")
         raise typer.Exit(code=1)
-
-
-def _print_answer(out: dict) -> None:
-    console.print(f"\n[bold green]answer[/bold green]: {out['answer']}")
-    if out.get("citations"):
-        console.print(f"[dim]sources: {', '.join(out['citations'])}[/dim]")
-    console.print(f"[dim]route: {out.get('route')}[/dim]")
 
 
 if __name__ == "__main__":

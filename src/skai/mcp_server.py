@@ -12,7 +12,7 @@ from functools import lru_cache
 
 from mcp.server.mcpserver import MCPServer
 
-from skai.agent.graph import answer_question, build_graph, make_checkpointer
+from skai.agent.graph import CORRECTION_BANNER, astream_answer, build_graph, make_checkpointer
 from skai.agent.llm import make_llm
 from skai.config import get_settings
 from skai.ingest.store import Store
@@ -35,6 +35,8 @@ def _graph():
         top_k=s.top_k,
         max_retries=s.max_retries,
         checkpointer=make_checkpointer(s.memory_db),
+        pii_redaction=s.pii_redaction,
+        refusal_topics=s.refusal_topics,
     )
 
 
@@ -52,11 +54,23 @@ def search_kb(query: str, source_type: str | None = None) -> list[dict]:
 
 
 @server.tool()
-def ask(question: str) -> str:
+async def ask(question: str) -> str:
     """Ask the self-reflective knowledge agent. Returns a grounded, cited answer."""
-    out = answer_question(_graph(), question, thread_id="mcp")
-    sources = f"\n\nSources: {', '.join(out['citations'])}" if out.get("citations") else ""
-    return out["answer"] + sources
+    # async so the agent runs non-blocking; MCP tool results are request/response,
+    # so we accumulate the stream and return the whole answer (no token streaming).
+    parts, final, corrected = [], {}, False
+    async for ev in astream_answer(_graph(), question, thread_id="mcp"):
+        if ev["type"] == "token":
+            parts.append(ev["text"])
+        elif ev["type"] == "correction":
+            corrected = True
+        elif ev["type"] == "final":
+            final = ev
+    answer = "".join(parts) or final.get("answer", "")
+    if corrected:
+        answer = f"{answer}\n\n{CORRECTION_BANNER}"
+    sources = f"\n\nSources: {', '.join(final['citations'])}" if final.get("citations") else ""
+    return answer + sources
 
 
 def serve() -> None:
