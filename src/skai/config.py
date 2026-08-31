@@ -55,6 +55,16 @@ class Settings(BaseSettings):
     top_k: int = Field(default=3, alias="SKAI_TOP_K")
     max_retries: int = Field(default=2, alias="SKAI_MAX_RETRIES")
 
+    # Guardrails. Redaction + injection scan default on; refusal topics off.
+    pii_redaction: bool = Field(default=True, alias="SKAI_PII_REDACTION")
+    injection_scan: bool = Field(default=True, alias="SKAI_INJECTION_SCAN")
+    refusal_topics_raw: str = Field(default="", alias="SKAI_REFUSAL_TOPICS")
+
+    @property
+    def refusal_topics(self) -> list[str]:
+        """Comma-separated denied output-policy topics; empty => policy off."""
+        return [t.strip() for t in self.refusal_topics_raw.split(",") if t.strip()]
+
     # Observability (Langfuse-standard names). Absent keys => tracing disabled.
     langfuse_public_key: str | None = Field(default=None, alias="LANGFUSE_PUBLIC_KEY")
     langfuse_secret_key: str | None = Field(default=None, alias="LANGFUSE_SECRET_KEY")

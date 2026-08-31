@@ -9,6 +9,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from skai.agent import prompts
 from skai.models import AgentState, RetrievedChunk
+from skai import guard
 
 
 def _ask(llm, system: str, user: str) -> str:
@@ -17,10 +18,20 @@ def _ask(llm, system: str, user: str) -> str:
 
 
 def _format_context(docs: list[RetrievedChunk]) -> str:
-    return "\n\n".join(f"[{d.metadata.get('source_id', '?')}] {d.text}" for d in docs)
+    # Explicit delimiters + the standing rule in GENERATE_SYSTEM are the primary
+    # defense against injection via retrieved content: text stays inside a tag,
+    # marked as data, never instruction.
+    return "\n\n".join(
+        f'<document source_id="{d.metadata.get("source_id", "?")}">\n{d.text}\n</document>'
+        for d in docs
+    )
 
 
-def route(state: AgentState, *, llm) -> dict:
+def route(state: AgentState, *, llm, refusal_topics: list[str] | None = None) -> dict:
+    # Output policy: a denied topic short-circuits to the out_of_scope refusal
+    # before any retrieval/generation. Default (no topics) => never triggers.
+    if guard.check_output_policy(state["question"], refusal_topics):
+        return {"route": "out_of_scope", "retries": state.get("retries", 0)}
     label = _ask(llm, prompts.ROUTE_SYSTEM, state["question"]).lower()
     if "out_of_scope" in label or "out of scope" in label:
         r = "out_of_scope"
@@ -37,6 +48,10 @@ def retrieve(state: AgentState, *, kb, top_k: int = 5) -> dict:
     hits = kb.query(
         state["question"], k=top_k, source_type=state.get("source_type")
     )
+    # Drop quarantined chunks (injection payloads) so they never reach generate.
+    # Filtered here in Python, not via a Chroma `where`, so directly-seeded chunks
+    # (tests) that lack the key are unaffected.
+    hits = [h for h in hits if not h.metadata.get("quarantined")]
     return {"docs": hits}
 
 
@@ -69,13 +84,15 @@ def grade_docs(state: AgentState, *, llm, max_retries: int = 2) -> dict:
     return {"docs_ok": False, "action": "generate"}  # exhausted -> generate will hedge
 
 
-def generate(state: AgentState, *, llm) -> dict:
+def generate(state: AgentState, *, llm, pii_redaction: bool = True) -> dict:
     r = state.get("route", "kb")
     if r == "out_of_scope":
         msg = prompts.OUT_OF_SCOPE_MSG
         return {"answer": msg, "citations": [], "messages": [AIMessage(content=msg)]}
     if r == "chitchat":
         msg = _ask(llm, prompts.CHITCHAT_SYSTEM, state["question"])
+        if pii_redaction:
+            msg, _ = guard.redact_pii(msg)
         return {"answer": msg, "citations": [], "messages": [AIMessage(content=msg)]}
 
     docs = state.get("docs", [])
@@ -86,6 +103,10 @@ def generate(state: AgentState, *, llm) -> dict:
             question=state["question"], context=_format_context(docs)
         ),
     )
+    # Redact on output too: a PII leak already in the corpus is not amplified to
+    # the user. Citation tags [source_id] are not PII, so they survive.
+    if pii_redaction:
+        answer, _ = guard.redact_pii(answer)
     citations = _extract_citations(answer, docs)
     return {"answer": answer, "citations": citations, "messages": [AIMessage(content=answer)]}
 
