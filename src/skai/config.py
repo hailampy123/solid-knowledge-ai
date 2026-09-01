@@ -8,6 +8,7 @@ Mixed naming on purpose:
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -50,6 +51,12 @@ class Settings(BaseSettings):
     chroma_dir: str = Field(default="./.chroma", alias="SKAI_CHROMA_DIR")
     collection: str = Field(default="knowledge", alias="SKAI_COLLECTION")
     memory_db: str = Field(default="./.skai/memory.sqlite", alias="SKAI_MEMORY_DB")
+
+    @property
+    def feedback_db(self) -> str:
+        """User-feedback + retrieval-gap store; sits beside the memory db."""
+        return str(Path(self.memory_db).with_name("feedback.sqlite"))
+
     # Lower k keeps retrieved context focused: fewer off-topic chunks dilute the
     # answer and score better on contextual-relevancy. Raise for broader recall.
     top_k: int = Field(default=3, alias="SKAI_TOP_K")

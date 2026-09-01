@@ -32,7 +32,7 @@ from deepeval.metrics import (  # noqa: E402
 from deepeval.models import DeepEvalBaseLLM  # noqa: E402
 from deepeval.test_case import LLMTestCase  # noqa: E402
 
-from evals.dataset import GOLDEN
+from evals.dataset import load_golden
 from skai.agent.graph import answer_question, build_graph
 from skai.agent.llm import make_llm
 from skai.config import get_settings, resolve_model
@@ -95,16 +95,21 @@ def agent():
     return graph, store, LiteLLMJudge(judge_id)
 
 
-@pytest.mark.parametrize("case", GOLDEN, ids=[c["question"] for c in GOLDEN])
+_GOLDEN = load_golden()
+
+
+@pytest.mark.parametrize("case", _GOLDEN, ids=[c["question"] for c in _GOLDEN])
 def test_rag_quality(agent, case):
     graph, store, judge = agent
     q = case["question"]
     out = answer_question(graph, q, thread_id=f"eval-{q}")
     context = [h.text for h in store.query(q, k=get_settings().top_k)]
 
-    # cheap deterministic gate before the (LLM-judged) metrics
-    haystack = (out["answer"] + " " + " ".join(context)).lower()
-    assert any(k in haystack for k in case["must_include"]), f"no expected keyword for: {q}"
+    # cheap deterministic gate before the (LLM-judged) metrics; a promoted case
+    # with no keywords yet (needs human review) skips only this gate.
+    if case.get("must_include"):
+        haystack = (out["answer"] + " " + " ".join(context)).lower()
+        assert any(k in haystack for k in case["must_include"]), f"no expected keyword for: {q}"
 
     tc = LLMTestCase(
         input=q,

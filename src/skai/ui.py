@@ -52,16 +52,11 @@ def _graph(model: str):
 
 
 def _stats_md() -> str:
-    s = get_settings()
-    fb = feedback.stats(s.memory_db.replace("memory.sqlite", "feedback.sqlite"))
+    fb = feedback.stats(get_settings().feedback_db)
     return (
         f"**Knowledge base:** {_store().count()} chunks\n\n"
         f"**Feedback:** 👍 {fb['up']} · 👎 {fb['down']}"
     )
-
-
-def _feedback_db() -> str:
-    return get_settings().memory_db.replace("memory.sqlite", "feedback.sqlite")
 
 
 def _open_trace_span(settings: Settings):
@@ -115,7 +110,8 @@ async def on_send(message, history, model, source_filter, thread_id):
     acc, citations, route, corrected = "", [], None, False
     try:
         async for ev in astream_answer(
-            graph, message, thread_id=thread_id, callbacks=callbacks, source_type=source
+            graph, message, thread_id=thread_id, callbacks=callbacks,
+            source_type=source, gap_log=settings.feedback_db,
         ):
             kind = ev["type"]
             if kind == "status":
@@ -161,7 +157,7 @@ def on_feedback(rating, comment, last):
     if not last:
         return "No response to rate yet."
     settings = get_settings()
-    feedback.record(_feedback_db(), rating=rating, comment=comment or "", **last)
+    feedback.record(settings.feedback_db, rating=rating, comment=comment or "", **last)
     feedback.push_langfuse_score(settings, last.get("trace_id"), rating, comment or "")
     return f"Thanks — recorded 👍/👎 as **{rating}**."
 

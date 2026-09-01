@@ -61,14 +61,15 @@ def _build_agent(settings: Settings):
     return graph
 
 
-def _stream_answer(graph, question, thread_id, callbacks, source) -> dict:
+def _stream_answer(graph, question, thread_id, callbacks, source, gap_log=None) -> dict:
     """Stream a turn to the console: status on stderr, tokens on stdout as they
     arrive, then citations/route. Returns the final event dict."""
     async def go() -> dict:
         streamed = False
         final: dict = {}
         async for ev in astream_answer(
-            graph, question, thread_id=thread_id, callbacks=callbacks, source_type=source
+            graph, question, thread_id=thread_id, callbacks=callbacks,
+            source_type=source, gap_log=gap_log,
         ):
             kind = ev["type"]
             if kind == "status":
@@ -130,7 +131,7 @@ def ask(
     """Ask a single question."""
     settings = _settings_with_model(model)
     graph = _build_agent(settings)
-    _stream_answer(graph, question, thread_id, get_callbacks(settings), source)
+    _stream_answer(graph, question, thread_id, get_callbacks(settings), source, settings.feedback_db)
     flush(settings)  # ensure traces are sent before the process exits
 
 
@@ -150,7 +151,7 @@ def chat(model: str = typer.Option(None, "--model", "-m", help=_MODEL_HELP)):
             break
         if not q:
             continue
-        _stream_answer(graph, q, "chat", callbacks, None)
+        _stream_answer(graph, q, "chat", callbacks, None, settings.feedback_db)
         flush(settings)
 
 
@@ -171,6 +172,38 @@ def ui(
     from skai.ui import launch
 
     launch(server_port=port, share=share)
+
+
+feedback_app = typer.Typer(help="Close the feedback loop: gap backlog + grow the eval set.")
+app.add_typer(feedback_app, name="feedback")
+
+
+@feedback_app.command("report")
+def feedback_report():
+    """Content backlog: questions the agent couldn't ground, most frequent first."""
+    from skai import feedback
+
+    db = get_settings().feedback_db
+    fb = feedback.stats(db)
+    console.print(f"[bold]feedback[/bold]: 👍 {fb['up']} · 👎 {fb['down']} (total {fb['total']})")
+    gaps = feedback.gap_report(db)
+    if not gaps:
+        console.print("[dim]no retrieval gaps logged yet[/dim]")
+        return
+    console.print("\n[bold]retrieval gaps (content backlog):[/bold]")
+    for g in gaps:
+        console.print(f"  [cyan]{g['count']:>3}×[/cyan]  {g['question']}  [dim]({', '.join(g['reasons'])})[/dim]")
+
+
+@feedback_app.command("promote")
+def feedback_promote(
+    out: str = typer.Option("evals/golden.jsonl", help="Golden JSONL to append cases to"),
+):
+    """Promote reviewed 👎 (thumbs-down + comment) into the DeepEval golden set."""
+    from skai import feedback
+
+    n = feedback.promote_downvotes(get_settings().feedback_db, out)
+    console.print(f"[green]promoted[/green] {n} thumbs-down case(s) into {out}")
 
 
 @app.command()

@@ -59,7 +59,9 @@ async def ask(question: str) -> str:
     # async so the agent runs non-blocking; MCP tool results are request/response,
     # so we accumulate the stream and return the whole answer (no token streaming).
     parts, final, corrected = [], {}, False
-    async for ev in astream_answer(_graph(), question, thread_id="mcp"):
+    async for ev in astream_answer(
+        _graph(), question, thread_id="mcp", gap_log=get_settings().feedback_db
+    ):
         if ev["type"] == "token":
             parts.append(ev["text"])
         elif ev["type"] == "correction":

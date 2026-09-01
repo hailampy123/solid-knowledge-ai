@@ -10,8 +10,11 @@ self_check is a terminal groundedness guard (see nodes.self_check).
 """
 from __future__ import annotations
 
+import logging
 from functools import partial
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from langchain_core.messages import HumanMessage
 from langgraph.graph import END, START, StateGraph
@@ -117,13 +120,19 @@ async def astream_answer(
     thread_id: str = "default",
     callbacks: list | None = None,
     source_type: str | None = None,
+    gap_log: str | None = None,
 ):
     """Async streaming counterpart of `answer_question`. Yields event dicts:
 
         {"type": "status", "node", "label"}   once per node as it runs
         {"type": "token",  "text"}            generate-node tokens, live
         {"type": "correction", "text"}        only if self_check found it ungrounded
-        {"type": "final", "answer", "citations", "route", "grounded"}
+        {"type": "final", "answer", "citations", "route", "grounded", "docs_ok"}
+
+    `gap_log` (a feedback-db path) closes the loop: when set, a turn the agent
+    couldn't ground (no relevant docs after retries, or self_check hedged) is
+    recorded to the gaps table, which `feedback.gap_report` turns into a content
+    backlog. Left None (tests, eval) => no logging.
 
     Post-hoc self_check (roadmap §3.1): the generated answer streams first; the
     verifier's verdict becomes a correction banner instead of a pre-emptive block.
@@ -143,6 +152,7 @@ async def astream_answer(
     gen: dict = {}       # the generate node's state patch (authoritative answer)
     verdict: dict = {}   # the self_check node's state patch (groundedness)
     route: str | None = None
+    docs_ok: bool | None = None  # last grade_docs verdict (None on non-kb routes)
     streamed = ""
 
     async for mode, chunk in graph.astream(
@@ -153,6 +163,8 @@ async def astream_answer(
                 patch = patch or {}
                 if node_name == "route":
                     route = patch.get("route", route)
+                elif node_name == "grade_docs":
+                    docs_ok = patch.get("docs_ok", docs_ok)
                 elif node_name == "generate":
                     gen = patch
                 elif node_name == "self_check":
@@ -174,10 +186,18 @@ async def astream_answer(
     grounded = verdict.get("grounded", True) if verdict else True
     if grounded is False:
         yield {"type": "correction", "text": CORRECTION_BANNER}
+    if gap_log and (docs_ok is False or grounded is False):
+        from skai import feedback
+
+        feedback.log_gap(
+            gap_log, question=question, route=route, answer=answer,
+            docs_ok=docs_ok, grounded=grounded,
+        )
     yield {
         "type": "final",
         "answer": answer,
         "citations": citations,
         "route": route,
         "grounded": grounded,
+        "docs_ok": docs_ok,
     }

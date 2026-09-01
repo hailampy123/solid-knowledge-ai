@@ -5,6 +5,7 @@ __pycache__/
 .chroma/
 .skai/
 .deepeval/
+evals/golden.jsonl
 .pytest_cache/
 *.egg-info/
 dist/

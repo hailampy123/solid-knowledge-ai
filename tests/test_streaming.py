@@ -8,6 +8,7 @@ import asyncio
 
 from conftest import StubLLM
 
+from skai import feedback
 from skai.agent import prompts
 from skai.agent.graph import CORRECTION_BANNER, astream_answer, build_graph
 from skai.ingest.store import Store
@@ -72,6 +73,22 @@ def test_stream_appends_correction_banner_when_ungrounded(tmp_path, ef):
     final = events[-1]
     assert final["grounded"] is False
     assert final["answer"]  # the generated answer is preserved, not replaced
+
+
+def test_stream_logs_gap_only_when_ungrounded(tmp_path, ef):
+    db = str(tmp_path / "feedback.sqlite")
+    # grounded turn: no gap logged
+    ok_graph = build_graph(_store(tmp_path, ef), StubLLM(_responder()), max_retries=2)
+    _collect(astream_answer(ok_graph, "what do orcas eat?", gap_log=db))
+    assert feedback.gap_report(db) == []
+
+    # ungrounded turn: one gap logged, keyed to the original question
+    bad = _responder(grade="IRRELEVANT\nretry", check="UNGROUNDED")
+    bad_graph = build_graph(_store(tmp_path, ef), StubLLM(bad), max_retries=1)
+    _collect(astream_answer(bad_graph, "ambiguous", gap_log=db))
+    report = feedback.gap_report(db)
+    assert len(report) == 1 and report[0]["question"] == "ambiguous"
+    assert "ungrounded/hedged" in report[0]["reasons"]
 
 
 def test_stream_out_of_scope_has_no_correction(tmp_path, ef):
