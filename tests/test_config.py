@@ -11,6 +11,10 @@ def test_code_defaults():
     assert f["collection"].default == "knowledge"
     assert f["top_k"].default == 3
     assert f["max_retries"].default == 2
+    # generation knobs default to None => provider default, not a forced value
+    assert f["max_tokens"].default is None
+    assert f["top_p"].default is None
+    assert f["api_base"].default is None
 
 
 def test_env_override(monkeypatch):
@@ -33,8 +37,24 @@ def test_langfuse_enabled(monkeypatch):
 def test_resolve_model_aliases():
     assert resolve_model("haiku") == "anthropic/claude-haiku-4-5"
     assert resolve_model("sonnet") == "anthropic/claude-sonnet-4-5"
-    # a full id passes through unchanged
+    # cross-provider aliases
+    assert resolve_model("gemini-flash") == "gemini/gemini-2.5-flash"
+    assert resolve_model("gpt-4o-mini") == "openai/gpt-4o-mini"
+    # a full id (any provider) passes through unchanged
     assert resolve_model("anthropic/claude-sonnet-4-5") == "anthropic/claude-sonnet-4-5"
+    assert resolve_model("gemini/gemini-2.5-pro") == "gemini/gemini-2.5-pro"
+
+
+def test_provider_keys_and_knobs(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    monkeypatch.setenv("GEMINI_API_KEY", "sk-gemini")
+    monkeypatch.setenv("SKAI_MAX_TOKENS", "512")
+    monkeypatch.setenv("SKAI_API_BASE", "http://localhost:11434")
+    s = Settings(_env_file=None)
+    assert s.openai_api_key == "sk-openai"
+    assert s.gemini_api_key == "sk-gemini"
+    assert s.max_tokens == 512
+    assert s.api_base == "http://localhost:11434"
 
 
 def test_resolve_model_blocks_opus():

@@ -118,7 +118,10 @@ def ingest(
     )
 
 
-_MODEL_HELP = "Model: haiku (default) | sonnet | any non-Opus LiteLLM id"
+_MODEL_HELP = (
+    "Model alias (haiku, sonnet, gemini-flash, gemini-pro, gpt-4o, gpt-4o-mini) "
+    "or any non-Opus LiteLLM id (e.g. openai/gpt-4o, gemini/gemini-2.5-pro)"
+)
 
 
 @app.command()

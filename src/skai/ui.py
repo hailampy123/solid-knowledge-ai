@@ -224,7 +224,10 @@ def build_ui() -> gr.Blocks:
                 fb_status = gr.Markdown("")
 
             with gr.Column(scale=1):
-                model = gr.Dropdown(["haiku", "sonnet"], value="haiku", label="Model")
+                model = gr.Dropdown(
+                    ["haiku", "sonnet", "gemini-flash", "gemini-pro", "gpt-4o", "gpt-4o-mini"],
+                    value="haiku", label="Model", allow_custom_value=True,
+                )
                 source_filter = gr.Dropdown(["all", "pdf", "md", "web"], value="all", label="Source filter")
                 stats = gr.Markdown(_stats_md)
                 gr.Markdown("### Grow the knowledge base")
