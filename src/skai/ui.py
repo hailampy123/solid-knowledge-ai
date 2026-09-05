@@ -29,6 +29,26 @@ EXAMPLES = [
     "What threats do orcas face?",
 ]
 
+# Offline-safe font list (no GoogleFont fetch) so the UI themes even without network.
+THEME = gr.themes.Soft(
+    primary_hue="blue", secondary_hue="cyan", neutral_hue="slate",
+    font=["Inter", "system-ui", "sans-serif"],
+)
+
+CSS = """
+.gradio-container {max-width: 1080px !important; margin: 0 auto !important;}
+#skai-title h1 {margin-bottom: .25rem;}
+#skai-title p {color: var(--body-text-color-subdued); margin-top: 0;}
+footer {visibility: hidden;}
+"""
+
+WELCOME = (
+    "### 🐋 Ask me about orcas\n"
+    "I answer from ingested PDF, Markdown, and web sources — with citations — "
+    "and I say so honestly when I can't ground an answer.\n\n"
+    "Pick an example below, or grow my knowledge base from the panel on the right."
+)
+
 
 @lru_cache
 def _store() -> Store:
@@ -199,43 +219,57 @@ def on_ingest_url(url):
 # --- layout ------------------------------------------------------------------
 
 def build_ui() -> gr.Blocks:
-    with gr.Blocks(title="Solid Knowledge AI", fill_height=True) as demo:
+    with gr.Blocks(title="Solid Knowledge AI", fill_height=True) as demo:  # theme/css -> launch() in Gradio 6
         gr.Markdown(
             "# 🐋 Solid Knowledge AI\n"
-            "Ask questions across ingested PDF / Markdown / web sources. The agent "
-            "self-checks its retrieval and answer, cites sources, and declines when "
-            "it can't ground an answer."
+            "A self-reflective knowledge agent over your PDF · Markdown · web sources.",
+            elem_id="skai-title",
         )
         thread = gr.State(str(uuid4()))
         last = gr.State(None)
 
-        with gr.Row():
+        with gr.Row(equal_height=False):
             with gr.Column(scale=3):
-                chatbot = gr.Chatbot(height=460, show_label=False)
-                msg = gr.Textbox(placeholder="Ask about orcas…", show_label=False, autofocus=True)
+                chatbot = gr.Chatbot(
+                    height=520,
+                    show_label=False,
+                    render_markdown=True,
+                    resizable=True,
+                    placeholder=WELCOME,
+                )
                 with gr.Row():
-                    send = gr.Button("Send", variant="primary")
-                    clear = gr.Button("Clear conversation")
+                    msg = gr.Textbox(
+                        placeholder="Ask about orcas…", show_label=False,
+                        autofocus=True, scale=8, container=False,
+                    )
+                    send = gr.Button("Send", variant="primary", scale=1, min_width=90)
                 gr.Examples(EXAMPLES, inputs=msg, label="Try an example")
+                clear = gr.Button("🗑 Clear conversation", variant="secondary", size="sm")
+
                 with gr.Row(visible=False) as fb_row:
-                    up = gr.Button("👍 Helpful", size="sm")
-                    down = gr.Button("👎 Not helpful", size="sm")
-                    comment = gr.Textbox(placeholder="optional comment", show_label=False, scale=3, container=False)
+                    up = gr.Button("👍 Helpful", size="sm", variant="secondary")
+                    down = gr.Button("👎 Not helpful", size="sm", variant="secondary")
+                    comment = gr.Textbox(
+                        placeholder="optional comment", show_label=False, scale=3, container=False,
+                    )
                 fb_status = gr.Markdown("")
 
             with gr.Column(scale=1):
-                model = gr.Dropdown(
-                    ["haiku", "sonnet", "gemini-flash", "gemini-pro", "gpt-4o", "gpt-4o-mini"],
-                    value="haiku", label="Model", allow_custom_value=True,
-                )
-                source_filter = gr.Dropdown(["all", "pdf", "md", "web"], value="all", label="Source filter")
                 stats = gr.Markdown(_stats_md)
-                gr.Markdown("### Grow the knowledge base")
-                file = gr.File(label="Upload .md / .txt / .pdf", file_types=[".md", ".txt", ".pdf"])
-                add_file = gr.Button("Ingest file")
-                url = gr.Textbox(label="…or add a URL")
-                add_url = gr.Button("Ingest URL")
-                ingest_status = gr.Markdown("")
+                with gr.Accordion("⚙️ Model & filters", open=True):
+                    model = gr.Dropdown(
+                        ["haiku", "sonnet", "gemini-flash", "gemini-pro", "gpt-4o", "gpt-4o-mini"],
+                        value="haiku", label="Model", allow_custom_value=True,
+                    )
+                    source_filter = gr.Dropdown(
+                        ["all", "pdf", "md", "web"], value="all", label="Source filter",
+                    )
+                with gr.Accordion("📚 Grow the knowledge base", open=False):
+                    file = gr.File(label="Upload .md / .txt / .pdf", file_types=[".md", ".txt", ".pdf"])
+                    add_file = gr.Button("Ingest file", size="sm")
+                    url = gr.Textbox(label="…or add a URL")
+                    add_url = gr.Button("Ingest URL", size="sm")
+                    ingest_status = gr.Markdown("")
 
         send_args = dict(
             fn=on_send,
@@ -245,10 +279,13 @@ def build_ui() -> gr.Blocks:
         send.click(**send_args)
         msg.submit(**send_args)
 
-        up.click(lambda c, l: on_feedback("up", c, l), [comment, last], fb_status)
-        down.click(lambda c, l: on_feedback("down", c, l), [comment, last], fb_status)
-        up.click(_stats_md, None, stats)
-        down.click(_stats_md, None, stats)
+        # record → clear the comment box → refresh the sidebar stats
+        up.click(lambda c, l: on_feedback("up", c, l), [comment, last], fb_status).then(
+            lambda: "", None, comment
+        ).then(_stats_md, None, stats)
+        down.click(lambda c, l: on_feedback("down", c, l), [comment, last], fb_status).then(
+            lambda: "", None, comment
+        ).then(_stats_md, None, stats)
 
         clear.click(on_clear, None, [chatbot, thread, last, fb_row, fb_status])
         add_file.click(on_ingest_file, file, [stats, ingest_status])
@@ -258,6 +295,9 @@ def build_ui() -> gr.Blocks:
 
 
 def launch(**kwargs) -> None:
+    # Gradio 6: theme/css are launch() args, not Blocks() args.
+    kwargs.setdefault("theme", THEME)
+    kwargs.setdefault("css", CSS)
     build_ui().launch(**kwargs)
 
 
