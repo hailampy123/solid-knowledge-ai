@@ -161,9 +161,9 @@ src/skai/
 evals/                 DeepEval suite               tests/           offline unit + graph tests
 ```
 
-**Agent graph & component diagrams (Mermaid):** see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
-**Design rationale and tech trade-offs:** see [`docs/DECISIONS.md`](docs/DECISIONS.md).
-**Where it goes next (capability & use cases):** see [`docs/CAPABILITY-ROADMAP.md`](docs/CAPABILITY-ROADMAP.md).
+**Agent graph & component diagrams (Mermaid):** see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+**Design rationale and tech trade-offs:** see [`docs/DECISIONS.md`](docs/DECISIONS.md)
+**Where it goes next (capability & use cases):** see [`docs/CAPABILITY-ROADMAP.md`](docs/CAPABILITY-ROADMAP.md)
 **Running it on Gemini Enterprise CX / Google Cloud:** see [`docs/GEMINI-ENTERPRISE-PORT.md`](docs/GEMINI-ENTERPRISE-PORT.md)
 
 ## Status
