@@ -11,3 +11,4 @@ evals/golden.jsonl
 dist/
 build/
 .uv/
+.serena/
